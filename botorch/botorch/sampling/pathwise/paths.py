@@ -31,7 +31,7 @@ from botorch.sampling.pathwise.utils import (
     TOutputTransform,
     TransformedModuleMixin,
 )
-from torch import Tensor, Size
+from torch import Tensor, Size, einsum
 from torch.nn import Module, ModuleDict, ModuleList, Parameter
 
 
@@ -188,7 +188,9 @@ class GeneralizedLinearPath(SamplePath):
         # The features can vary in number of dims depending on the input
         feat = self.feature_map(x, **kwargs)
         if subset is None:
-            out = (feat @ self.weight.unsqueeze(-1)).squeeze(-1)
+            weight = self.weight.unsqueeze(-1)
         else:
-            out = (feat @ self.weight[subset].unsqueeze(-1)).squeeze(-1)
+            weight = self.weight[subset].unsqueeze(-1)
+        # out = (feat @ weight).squeeze(-1)  # memory inefficient
+        out = einsum("bnhd,vdn->bvhn" if feat.ndim > 2 else "hd,vdn->vhn", feat.to_dense(), weight).squeeze(-1)
         return out if self.bias_module is None else out + self.bias_module(x)
