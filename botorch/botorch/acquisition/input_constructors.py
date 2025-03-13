@@ -1980,8 +1980,11 @@ def construct_inputs_qPriorMES(
     optimal_inputs, optimal_outputs = optimize_posterior_samples(
         paths=paths,
         bounds=torch.as_tensor(bounds, dtype=path_dtype).T,
-        subset_indices=torch.arange(num_optima),
+        # subset_indices=torch.arange(num_optima),
     )
+    # Quick fix to unrecognized keyword arg above: Take subset indices from the optimal inputs and outputs
+    optimal_inputs = optimal_inputs[:num_optima]
+    optimal_outputs = optimal_outputs[:num_optima]
 
     if user_prior_value is not None:
         user_prior_value.setup(training_data.Y(), model.Ymean, model.Ystd)
