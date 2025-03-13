@@ -873,7 +873,7 @@ def _update_samples(model, paths, cond_inputs, cond_targets):
     return MatheronPath(prior_paths=prior_paths, update_paths=update_paths)
 
 
-def resample(paths: MatheronPath, sample_probs: Tensor, resampling_fraction: float, only_once: bool = True) -> tuple(MatheronPath, Tensor):
+def resample(paths: MatheronPath, sample_probs: Tensor, resampling_fraction: float, only_once: bool = True) -> tuple[MatheronPath, Tensor]:
     num_resamples = math.ceil(resampling_fraction * len(sample_probs))
     probs = (sample_probs / sample_probs.sum()).flatten().detach().numpy()
     #plot_samples(paths, probs)
@@ -926,3 +926,179 @@ class qPriorKnowledgeGradient:
 
 class qPriorJointEntropySearch:
     pass
+
+
+# ----------------- PairwiseGP Variants (no Matheron paths) -----------------
+class MatheronFreePriorMCAcquisitionFunction(MCAcquisitionFunction):
+    def __init__(
+        self,
+        model: Model,
+        sampler: Optional[MCSampler] = None,
+        objective: Optional[MCAcquisitionObjective] = None,
+        posterior_transform: Optional[PosteriorTransform] = None,
+        X_pending: Optional[Tensor] = None,
+        user_prior: Optional[UserPrior] = None,
+        user_prior_value: Optional[UserPrior] = None,
+        decay_beta: float = 10.0,
+        prior_floor: float = 1e-9,
+        custom_decay: Optional[float] = None,
+        use_resampling: bool = True,
+        resampling_fraction: float = 0.05,
+        plot: bool = False,
+        decay_power: float = 2.0, 
+        ** kwargs: Any,
+    ) -> None:
+        r"""q-Expected Improvement with arbitrary user priors.
+
+        Args:
+            model: A fitted model.
+            best_f: The best objective value observed so far (assumed noiseless). Can be
+                a `batch_shape`-shaped tensor, which in case of a batched model
+                specifies potentially different values for each element of the batch.
+            sampler: The sampler used to draw base samples. See `MCAcquisitionFunction`
+                more details.
+            objective: The MCAcquisitionObjective under which the samples are evaluated.
+                Defaults to `IdentityMCObjective()`.
+            posterior_transform: A PosteriorTransform (optional).
+            X_pending:  A `m x d`-dim Tensor of `m` design points that have been
+                submitted for function evaluation but have not yet been evaluated.
+                Concatenated into X upon forward call. Copied and set to have no Papperskorg1!
+                gradient.
+        """
+        sampling_model = deepcopy(model)
+        super().__init__(
+            model=sampling_model,  # TODO or just model - check what fantasies are being used
+            sampler=sampler,
+            objective=objective,
+            posterior_transform=posterior_transform,
+            X_pending=X_pending,
+        )
+        self.old_model = model
+        self.sampling_model = sampling_model
+        if custom_decay is not None:
+            self.decay_factor = custom_decay
+        else:
+            self.decay_factor = decay_beta / \
+                ((len(self.model.train_targets)) ** decay_power)
+
+        self.prior_floor = torch.Tensor([prior_floor])
+        self.user_prior = user_prior
+        if self.user_prior is None:
+            self.sample_probs = torch.ones(self.sampler.sample_shape).reshape(-1, 1, 1)
+        else:
+            self.user_prior.register_maxval(optval_prior=user_prior_value)
+
+            # TODO: Compute norm probs not from prior paths but from prior (posterior samples are optimized here)
+            self.sample_probs = self.user_prior.compute_norm_probs(
+                self.sampling_model.paths.paths.prior_paths, self.decay_factor, self.prior_floor).reshape(-1, 1, 1).detach()
+
+            if torch.any(torch.isnan(self.sample_probs)):
+                print('Some value in sample probs is nan')
+                print(torch.isnan(self.sample_probs).sum())
+                raise SystemExit
+
+            self.sample_probs = self.sample_probs / self.sample_probs.mean()
+
+        if user_prior is not None and use_resampling:
+            am = self.sample_probs.argmax()
+            torch.sqrt(torch.pow(self.user_prior.optimal_inputs - 0.5
+                       * torch.ones_like(self.user_prior.optimal_inputs), 2).sum(dim=-1)).min()
+            
+            # TODO: Resample not from paths but from posterior (sample probs are just smaller set after this)
+            _, self.sample_probs, indices = resample(
+                paths, self.sample_probs, resampling_fraction)
+            self.indices = indices
+
+            # TODO switch places when doing the super() call
+            self.sampling_model.set_paths(paths, self.indices) # TODO: Do not set paths (no paths)
+            self.model = self.sampling_model
+            self.sample_probs = (self.sample_probs / self.sample_probs.mean()).detach()
+        
+
+class qMatheronFreePriorExpectedImprovement(MatheronFreePriorMCAcquisitionFunction):
+    def __init__(
+        self,
+        model: Model,
+        X_baseline: Tensor,
+        sampler: Optional[MCSampler] = None,
+        objective: Optional[MCAcquisitionObjective] = None,
+        posterior_transform: Optional[PosteriorTransform] = None,
+        X_pending: Optional[Tensor] = None,
+        user_prior: Optional[UserPrior] = None,
+        user_prior_value: Optional[UserPrior] = None,
+        decay_beta: float = 10.0,
+        prior_floor: float = 1e-9,
+        custom_decay: Optional[float] = None,
+        use_resampling: bool = True,
+        resampling_fraction: float = 0.1,
+        **kwargs: Any,
+    ) -> None:
+        r"""q-Expected Improvement with arbitrary user priors.
+
+        Args:
+            model: A fitted model.
+            best_f: The best objective value observed so far (assumed noiseless). Can be
+                a `batch_shape`-shaped tensor, which in case of a batched model
+                specifies potentially different values for each element of the batch.
+            sampler: The sampler used to draw base samples. See `MCAcquisitionFunction`
+                more details.
+            objective: The MCAcquisitionObjective under which the samples are evaluated.
+                Defaults to `IdentityMCObjective()`.
+            posterior_transform: A PosteriorTransform (optional).
+            X_pending:  A `m x d`-dim Tensor of `m` design points that have been
+                submitted for function evaluation but have not yet been evaluated.
+                Concatenated into X upon forward call. Copied and set to have no
+                gradient.
+        """
+        super().__init__(
+            model=model,
+            sampler=sampler,
+            objective=objective,
+            posterior_transform=posterior_transform,
+            X_pending=X_pending,
+            user_prior=user_prior,
+            user_prior_value=user_prior_value,
+            decay_beta=decay_beta,
+            prior_floor=prior_floor,
+            custom_decay=custom_decay,
+            use_resampling=use_resampling,
+            resampling_fraction=resampling_fraction,
+        )
+        X_baseline = prune_inferior_points(
+            model=model,
+            X=X_baseline,
+            objective=objective,
+            posterior_transform=posterior_transform,
+            marginalize_dim=kwargs.get("marginalize_dim"),
+        )
+        self.register_buffer("X_baseline", X_baseline)
+        # self.register_buffer("best_f", torch.as_tensor(best_f, dtype=float))
+
+    @concatenate_pending_points
+    @t_batch_mode_transform()
+    def forward(self, X: Tensor, use_prior: bool = True) -> Tensor:
+        r"""Evaluate qExpectedImprovement on the candidate set `X`.
+
+        Args:
+            X: A `batch_shape x q x d`-dim Tensor of t-batches with `q` `d`-dim design
+                points each.
+
+        Returns:
+            A `batch_shape'`-dim Tensor of Expected Improvement values at the given
+            design points `X`, where `batch_shape'` is the broadcasted batch shape of
+            model and input `X`.
+        """
+        q = X.shape[-2]
+        X_full = torch.cat([match_batch_shape(self.X_baseline, X), X], dim=-2)
+        # TODO: Implement more efficient way to compute posterior over both training and
+        # test points in GPyTorch (https://github.com/cornellius-gp/gpytorch/issues/567)
+        posterior = self.sampling_model.posterior(
+            X_full, posterior_transform=self.posterior_transform
+        )
+        samples = self.get_posterior_samples(posterior)
+        obj = self.objective(samples, X=X_full)
+        diffs = obj[..., -q:].max(dim=-1).values - obj[..., :-q].max(dim=-1).values
+
+        if use_prior:
+            diffs = diffs * self.sample_probs.squeeze(-1)
+        return diffs.clamp_min(0).mean(dim=0)
