@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Any, Optional, Union
 
+from botorch.models import SingleTaskGP, FixedNoiseGP
+from botorch.models.pairwise_gp import PairwiseGP
 from botorch.models.approximate_gp import ApproximateGPyTorchModel
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.sampling.pathwise.paths import PathDict, PathList, SamplePath
@@ -37,7 +39,8 @@ from botorch.sampling.pathwise.utils import (
 from botorch.utils.context_managers import delattr_ctx
 from botorch.utils.dispatcher import Dispatcher
 from gpytorch.models import ApproximateGP, ExactGP, GP
-from torch import Size
+from gpytorch.likelihoods import GaussianLikelihood
+from torch import Size, Tensor, full_like
 
 DrawMatheronPaths = Dispatcher("draw_matheron_paths")
 
@@ -171,6 +174,49 @@ def _draw_matheron_paths_ApproximateGP(
 
         # Compute pathwise updates
         update_paths = update_strategy(model=model, sample_values=sample_values)
+
+    return MatheronPath(
+        prior_paths=prior_paths,
+        update_paths=update_paths,
+        output_transform=get_output_transform(model),
+    )
+
+@DrawMatheronPaths.register(PairwiseGP)
+def _draw_matheron_paths_PairwiseGP(
+    model: PairwiseGP,
+    *,
+    sample_shape: Size,
+    prior_sampler: TPathwisePriorSampler,
+    update_strategy: TPathwiseUpdate,
+    subset: Tensor = None
+) -> MatheronPath:
+    (train_X,) = get_train_inputs(model, transformed=True)
+    posterior_distributions_over_Y = model.posterior(train_X)
+    # Sample a train_Y from the posterior for each train_X (not sure why I would not just use the mean)
+    train_Y = posterior_distributions_over_Y.sample(sample_shape=Size([1])).squeeze(0)
+
+    # Construct a SingleTaskGP model from the pairwise model (makes sure that the
+    # likelihood is Gaussian and can be updated)
+    # absoluteratingsgp_model = SingleTaskGP(
+    absoluteratingsgp_model = FixedNoiseGP(
+        train_X=train_X,
+        train_Y=train_Y,
+        train_Yvar=full_like(train_Y, 1e-6),
+        covar_module=model.covar_module,
+        mean_module=model.mean_module,
+        input_transform=getattr(model, "input_transform", None),
+    )
+
+    with delattr_ctx(model, "outcome_transform"):
+        # Generate draws from the prior
+        prior_paths = prior_sampler(model=absoluteratingsgp_model, sample_shape=sample_shape)
+        sample_values = prior_paths.forward(train_X, subset=subset)
+        # Compute pathwise updates
+        update_paths = update_strategy(
+            model=absoluteratingsgp_model,
+            sample_values=sample_values,
+            train_targets=train_Y,
+        )
 
     return MatheronPath(
         prior_paths=prior_paths,

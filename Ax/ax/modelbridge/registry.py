@@ -31,6 +31,7 @@ from ax.modelbridge.base import ModelBridge
 from ax.modelbridge.discrete import DiscreteModelBridge
 from ax.modelbridge.random import RandomModelBridge
 from ax.modelbridge.torch import TorchModelBridge
+from ax.modelbridge.pairwise import PairwiseModelBridge
 from ax.modelbridge.transforms.base import Transform
 from ax.modelbridge.transforms.centered_unit_x import CenteredUnitX
 from ax.modelbridge.transforms.choice_encode import ChoiceEncode, OrderedChoiceEncode
@@ -313,6 +314,12 @@ MODEL_KEY_TO_MODEL_SETUP: Dict[str, ModelSetup] = {
         transforms=Cont_X_trans + Y_trans,
         standard_bridge_kwargs=STANDARD_TORCH_BRIDGE_KWARGS,
     ),
+    "Pairwise": ModelSetup(
+        bridge_class=PairwiseModelBridge,
+        model_class=ModularBoTorchModel,
+        transforms=Cont_X_trans + Y_trans,
+        standard_bridge_kwargs=STANDARD_TORCH_BRIDGE_KWARGS,
+    )
 }
 
 
@@ -495,6 +502,7 @@ class Models(ModelRegistryBase):
     ST_MTGP_NEHVI = "ST_MTGP_NEHVI"
     ALEBO_INITIALIZER = "ALEBO_Initializer"
     CONTEXT_SACBO = "Contextual_SACBO"
+    PAIRWISE = "Pairwise"
 
 
 def get_model_from_generator_run(

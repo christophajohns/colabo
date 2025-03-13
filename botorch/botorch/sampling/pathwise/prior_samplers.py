@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
+from botorch.models.pairwise_gp import PairwiseGP
 from botorch.models.approximate_gp import ApproximateGPyTorchModel
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.sampling.pathwise.features import gen_kernel_features
@@ -151,5 +152,19 @@ def _draw_kernel_feature_paths_ApproximateGP_fallback(
         num_inputs=num_inputs,
         mean_module=model.mean_module,
         covar_module=model.covar_module,
+        **kwargs,
+    )
+
+@DrawKernelFeaturePaths.register(PairwiseGP)
+def _draw_kernel_feature_paths_PairwiseGP(
+    model: PairwiseGP, **kwargs: Any
+) -> GeneralizedLinearPath:
+    (train_X,) = get_train_inputs(model, transformed=False)
+    return _draw_kernel_feature_paths_fallback(
+        num_inputs=train_X.shape[-1],
+        mean_module=model.mean_module,
+        covar_module=model.covar_module,
+        input_transform=get_input_transform(model),
+        output_transform=get_output_transform(model),
         **kwargs,
     )

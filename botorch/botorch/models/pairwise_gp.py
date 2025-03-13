@@ -32,6 +32,7 @@ from botorch.models.likelihoods.pairwise import (
     PairwiseLikelihood,
     PairwiseProbitLikelihood,
 )
+from botorch.posteriors.path import PathPosterior
 from botorch.models.model import FantasizeMixin, Model
 from botorch.models.transforms.input import InputTransform
 from botorch.models.utils.assorted import consolidate_duplicates
@@ -238,7 +239,10 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         # Do not set the batch_shape explicitly so mean_module can operate in both mode
         # once fsolve used in _update can run in batch mode, we should explicitly set
         # the bacth shape here
-        self.mean_module = ConstantMean()
+        mean_module = kwargs.get("mean_module", ConstantMean())
+        if mean_module is None:
+            mean_module = ConstantMean()
+        self.mean_module = mean_module
         # Do not optimize constant mean prior
         for param in self.mean_module.parameters():
             param.requires_grad = False
@@ -1016,6 +1020,9 @@ class PairwiseGP(Model, GP, FantasizeMixin):
             A `Posterior` object, representing joint
                 distributions over `q` points.
         """
+        if hasattr(self, 'paths'):
+            return PathPosterior(self.paths, X, subset_indices=self.subset_indices)
+
         self.eval()  # make sure model is in eval mode
 
         if output_indices is not None:
@@ -1080,6 +1087,10 @@ class PairwiseGP(Model, GP, FantasizeMixin):
             new_model.set_train_data(new_datapoints, new_comparisons, update_model=True)
 
         return new_model
+    
+    def set_paths(self, paths: MatheronPath, subset_indices: Optional[Tensor] = None):
+        self.paths = paths
+        self.subset_indices = subset_indices
 
 
 class PairwiseLaplaceMarginalLogLikelihood(MarginalLogLikelihood):
