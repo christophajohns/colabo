@@ -124,6 +124,7 @@ def setup_package() -> None:
             "local_scheme": local_version,
         },
         setup_requires=["setuptools_scm"],
+        version="0.3.2",  # Some version number to overcome setuptools-scm LookupError
     )
 
 

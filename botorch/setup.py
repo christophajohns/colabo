@@ -104,4 +104,5 @@ setup(
         "test": TEST_REQUIRES,
         "tutorials": TUTORIALS_REQUIRES,
     },
+    version="0.8.0",  # Some version number to overcome setuptools-scm LookupError
 )
