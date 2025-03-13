@@ -13,12 +13,14 @@ from botorch.models import SingleTaskGP, FixedNoiseGP
 from botorch.models.utils import check_no_nans
 from botorch.utils import t_batch_mode_transform
 from botorch.acquisition.monte_carlo import qExpectedImprovement, qNoisyExpectedImprovement, qProbabilityOfImprovement
+from botorch.acquisition.logei import qLogNoisyExpectedImprovement
 from botorch.utils.transforms import (
     concatenate_pending_points,
     match_batch_shape,
     t_batch_mode_transform
 )
 from botorch.utils.prior import UserPrior
+from botorch.utils.prior import normalize
 
 r"""
 (User-specified) Prior-weighted Acquisition functions - biasing the
@@ -65,8 +67,10 @@ class PriorAcquisitionFunction(AcquisitionFunction):
         # by evaluating in logspace (since the  or may give us)
         # unstable, small values
         raw_value = self.raw_acqf(X=X)
+        X_normalized = normalize(X, self.user_prior.bounds)
         log_prior_value = torch.clamp_min(
-        self.user_prior.forward(X), torch.log(self.prior_floor))
+            self.user_prior.forward(X_normalized), torch.log(self.prior_floor)
+        )
 
         if self.nonneg_acq:
             return log_prior_value * self.decay_factor + torch.log(torch.clamp_min(raw_value, self.acq_floor))
@@ -110,11 +114,12 @@ class PiBO(PriorAcquisitionFunction):
         prior_floor: float = 1e-12,
         log_acq_floor: float = 1e-30,
         nonneg_acq: bool = True,
+        acqf_factory: Callable[..., AcquisitionFunction] = qLogNoisyExpectedImprovement,
         **kwargs
     ):
         super().__init__(
             user_prior=user_prior,
-            raw_acqf=qNoisyExpectedImprovement,
+            raw_acqf=acqf_factory,  # qNoisyExpectedImprovement
             raw_acqf_kwargs=raw_acqf_kwargs,
             decay_beta=decay_beta,
             prior_floor=prior_floor,
