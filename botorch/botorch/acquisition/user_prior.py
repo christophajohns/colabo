@@ -72,10 +72,18 @@ class PriorAcquisitionFunction(AcquisitionFunction):
             self.user_prior.forward(X_normalized), torch.log(self.prior_floor)
         )
 
+        # For product of priors, we sum the log priors across the q dimension
+        # This gives us batch_shape tensor with the sum of log priors for each batch
+        # α_π(X) = α(X) · ∏_i [π(x_i)^γ] (originally: α_π(x) = α(x) π(x)^γ)
+        # NOTE: This is a deviation from the original PiBO technique that was fixed to q=1
+        log_prior_sum = log_prior_value.sum(dim=-1)
+        
         if self.nonneg_acq:
-            return log_prior_value * self.decay_factor + torch.log(torch.clamp_min(raw_value, self.acq_floor))
-
-        return torch.pow(torch.exp(log_prior_value), self.decay_factor) * raw_value
+            # In log space: log(prior^decay * acq) = decay * log(prior) + log(acq)
+            return log_prior_sum * self.decay_factor + torch.log(torch.clamp_min(raw_value, self.acq_floor))
+        
+        # Using exponential to convert back from log space for the prior part
+        return torch.pow(torch.exp(log_prior_sum), self.decay_factor) * raw_value
 
 
 class PriorqExpectedImprovement(PriorAcquisitionFunction):
