@@ -917,18 +917,18 @@ def optimize_posterior_samples(
             return -paths.forward(x)
 
     candidate_set = unnormalize(
-        SobolEngine(dimension=bounds.shape[1], scramble=True).draw(raw_samples), bounds
+        SobolEngine(dimension=bounds.shape[1], scramble=True).draw(raw_samples).to(device=bounds.device, dtype=torch.float32), bounds
     )  # .to(torch.float32)
 
     if sample_around_points is not None:
-        offsets = sample_around_best_std * torch.randn((num_around_best, ) + sample_around_points.shape)
+        offsets = sample_around_best_std * torch.randn((num_around_best, ) + sample_around_points.shape, device=bounds.device)
         suggestions = torch.clamp(
-            sample_around_points + offsets, bounds[0], bounds[1]).reshape(-1, sample_around_points.shape[-1])
+            sample_around_points + offsets, bounds[0], bounds[1]).reshape(-1, sample_around_points.shape[-1]).to(bounds.device)
         candidate_set =  torch.cat((candidate_set, suggestions), dim=0)
 
     num_optima = path_func(candidate_set[0:1]).shape[0:-1]
 
-    candidate_queries = torch.empty((num_optima + (0, )))
+    candidate_queries = torch.empty((num_optima + (0, ))).to(bounds.device)
     num_queried = 0
 
     while num_queried < raw_samples:

@@ -28,7 +28,9 @@ class UserPriorLocation:
 
     def __init__(self, bounds, prior_floor: float = 1e-12, dtype: torch.dtype = torch.float, seed: int = 42):
         self.bounds = bounds
-        self.norm_bounds = Tensor([(0.0, 1.0) for dim in range(bounds.shape[1])]).T
+        self.device = self.bounds.device
+
+        self.norm_bounds = Tensor([(0.0, 1.0) for dim in range(bounds.shape[1])]).T.to(device=self.device, dtype=dtype)
         self.dim = bounds.shape[1]
         self.prior_floor = prior_floor
         self.dtype = dtype
@@ -51,10 +53,10 @@ class UserPriorLocation:
         suggestions = self._sample(num_samples=raw_samples)
         if hasattr(self, 'default'):
             more_suggestions = self._default + \
-                torch.rand(size=(raw_samples, self.default.shape[0])) * 0.01
+                torch.rand(size=(raw_samples, self.default.shape[0]), device=self.device) * 0.01
             suggestions = torch.cat((suggestions, more_suggestions))
             more_suggestions = self._default + \
-                torch.rand(size=(raw_samples, self.default.shape[0])) * 0.025
+                torch.rand(size=(raw_samples, self.default.shape[0]), device=self.device) * 0.025
             suggestions = torch.cat((suggestions, more_suggestions))
         self.optimal_inputs, self.optimal_outputs = optimize_posterior_samples(
             matheron_paths, bounds=self.norm_bounds, raw_samples=raw_samples, candidates=suggestions, num_restarts=0)
