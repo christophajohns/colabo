@@ -47,6 +47,7 @@ class PriorAcquisitionFunction(AcquisitionFunction):
         prior_floor: float = 1e-12,
         log_acq_floor: float = 1e-30,
         nonneg_acq: bool = True,
+        log_acq: bool = False,  # Flag to indicate if the raw acquisition function is already in log space
         **kwargs
     ):
 
@@ -58,6 +59,7 @@ class PriorAcquisitionFunction(AcquisitionFunction):
         self.decay_factor = decay_beta / \
                 (len(self.model.train_targets))
         self.nonneg_acq = nonneg_acq
+        self.log_acq = log_acq
         self.prior_floor = torch.Tensor([prior_floor])
         self.acq_floor = torch.Tensor([log_acq_floor])
         
@@ -76,14 +78,23 @@ class PriorAcquisitionFunction(AcquisitionFunction):
         # This gives us batch_shape tensor with the sum of log priors for each batch
         # α_π(X) = α(X) · ∏_i [π(x_i)^γ] (originally: α_π(x) = α(x) π(x)^γ)
         # NOTE: This is a deviation from the original PiBO technique that was fixed to q=1
+        # Ensure log_prior_value has shape [batch_shape, q] 
+        # even if q=1 or if the prior is univariate.
+        batch_shape = X.shape[:-2]
+        q = X.shape[-2]
+        log_prior_value = log_prior_value.view(*batch_shape, q)
         log_prior_sum = log_prior_value.sum(dim=-1)
         
-        if self.nonneg_acq:
+        if self.nonneg_acq and (not self.log_acq):
             # In log space: log(prior^decay * acq) = decay * log(prior) + log(acq)
             return log_prior_sum * self.decay_factor + torch.log(torch.clamp_min(raw_value, self.acq_floor))
         
-        # Using exponential to convert back from log space for the prior part
-        return torch.pow(torch.exp(log_prior_sum), self.decay_factor) * raw_value
+        if self.log_acq:
+            # If the raw acquisition function is already in log space, we can directly add the log prior
+            return log_prior_sum * self.decay_factor + raw_value
+        
+        # Otherwise, using exponential to convert back from log space for the prior part
+        return torch.exp(log_prior_sum * self.decay_factor) * raw_value
 
 
 class PriorqExpectedImprovement(PriorAcquisitionFunction):
