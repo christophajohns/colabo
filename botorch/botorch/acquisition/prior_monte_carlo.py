@@ -162,7 +162,7 @@ class PriorMCAcquisitionFunction(MCAcquisitionFunction):
         self.prior_floor = torch.tensor([prior_floor], device=self.model.train_targets.device)
         self.user_prior = user_prior
         if self.user_prior is None:
-            self.sample_probs = torch.ones(self.sampler.sample_shape).reshape(-1, 1, 1)
+            self.sample_probs = torch.ones(self.sampler.sample_shape).reshape(-1, 1, 1).to(device=self.model.train_targets.device)
         else:
             self.user_prior.register_maxval(optval_prior=user_prior_value)
             self.sample_probs = self.user_prior.compute_norm_probs(
