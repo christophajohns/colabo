@@ -60,8 +60,8 @@ class PriorAcquisitionFunction(AcquisitionFunction):
                 (len(self.model.train_targets))
         self.nonneg_acq = nonneg_acq
         self.log_acq = log_acq
-        self.prior_floor = torch.Tensor([prior_floor])
-        self.acq_floor = torch.Tensor([log_acq_floor])
+        self.prior_floor = torch.tensor([prior_floor]).to(device=self.model.train_targets.device)
+        self.acq_floor = torch.tensor([log_acq_floor]).to(device=self.model.train_targets.device)
         
     @t_batch_mode_transform()
     def forward(self, X: Tensor) -> Tensor:
