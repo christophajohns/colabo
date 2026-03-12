@@ -157,16 +157,17 @@ class PriorMCAcquisitionFunction(MCAcquisitionFunction):
         else:
             self.decay_factor = decay_beta / \
                 ((len(self.model.train_targets)) ** decay_power)
+            
+        self.device = self.model.train_targets.device
 
-        # self.prior_floor = torch.Tensor([prior_floor])
-        self.prior_floor = torch.tensor([prior_floor], device=self.model.train_targets.device)
+        self.prior_floor = torch.tensor([prior_floor], device=self.device)
         self.user_prior = user_prior
         if self.user_prior is None:
-            self.sample_probs = torch.ones(self.sampler.sample_shape).reshape(-1, 1, 1).to(device=self.model.train_targets.device)
+            self.sample_probs = torch.ones(self.sampler.sample_shape, device=self.device).reshape(-1, 1, 1)
         else:
             self.user_prior.register_maxval(optval_prior=user_prior_value)
             self.sample_probs = self.user_prior.compute_norm_probs(
-                self.sampling_model.paths.paths.prior_paths, self.decay_factor, self.prior_floor).reshape(-1, 1, 1)#.detach()
+                self.sampling_model.paths.paths.prior_paths, self.decay_factor, self.prior_floor).reshape(-1, 1, 1)
 
             if torch.any(torch.isnan(self.sample_probs)):
                 print('Some value in sample probs is nan')
@@ -875,15 +876,16 @@ def _update_samples(model, paths, cond_inputs, cond_targets):
 
 
 def resample(paths: MatheronPath, sample_probs: Tensor, resampling_fraction: float, only_once: bool = True) -> tuple[MatheronPath, Tensor]:
+    device, dtype = sample_probs.device, sample_probs.dtype
     num_resamples = math.ceil(resampling_fraction * len(sample_probs))
-    probs = (sample_probs / sample_probs.sum()).flatten()#.detach().numpy()
+    probs = (sample_probs / sample_probs.sum()).flatten()
     #plot_samples(paths, probs)
 
     chosen_paths = torch.multinomial(
         sample_probs.flatten(), num_resamples, replacement=True)
     #plot_samples(paths, np.ones_like(probs))
     indices, counts = torch.unique(chosen_paths, return_counts=True)
-    indices, counts = indices.to(device=sample_probs.device), counts.to(device=sample_probs.device, dtype=torch.float32)
+    indices, counts = indices.to(device=device), counts.to(device=device, dtype=dtype)
 
     if only_once:
         paths = filter_paths(paths, indices)

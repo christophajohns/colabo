@@ -908,6 +908,8 @@ def optimize_posterior_samples(
     """
     #paths.paths.prior_paths.weight = paths.paths.prior_paths.weight.float()
     #paths.paths.update_paths.weight = paths.paths.update_paths.weight.float()
+    device, dtype = bounds.device, bounds.dtype
+
     if maximize:
         def path_func(x):
             return paths.forward(x)
@@ -917,26 +919,29 @@ def optimize_posterior_samples(
             return -paths.forward(x)
 
     candidate_set = unnormalize(
-        SobolEngine(dimension=bounds.shape[1], scramble=True).draw(raw_samples).to(device=bounds.device, dtype=torch.float32), bounds
-    )  # .to(torch.float32)
+        SobolEngine(dimension=bounds.shape[1], scramble=True).draw(raw_samples).to(device=device, dtype=dtype), bounds
+    )
 
     if sample_around_points is not None:
-        offsets = sample_around_best_std * torch.randn((num_around_best, ) + sample_around_points.shape, device=bounds.device)
+        offsets = sample_around_best_std * torch.randn((num_around_best, ) + sample_around_points.shape, device=device, dtype=dtype)
         suggestions = torch.clamp(
-            sample_around_points + offsets, bounds[0], bounds[1]).reshape(-1, sample_around_points.shape[-1]).to(bounds.device)
+            sample_around_points + offsets, bounds[0], bounds[1]).reshape(-1, sample_around_points.shape[-1])
         candidate_set =  torch.cat((candidate_set, suggestions), dim=0)
 
     num_optima = path_func(candidate_set[0:1]).shape[0:-1]
 
-    candidate_queries = torch.empty((num_optima + (0, ))).to(bounds.device)
+    candidate_queries = torch.empty((num_optima + (0, ))).to(device)
     num_queried = 0
 
+    all_queries = []
+    num_queried = 0
     while num_queried < raw_samples:
-        num_to_query = min(raw_samples, num_queried + batch_limit)
-        candidate_batch = candidate_set[num_queried: num_to_query]
-        candidate_queries = torch.cat(
-            (candidate_queries, path_func(candidate_batch)), dim=-1)
-        num_queried = num_to_query
+        end = min(raw_samples, num_queried + batch_limit)
+        candidate_batch = candidate_set[num_queried:end]
+        all_queries.append(path_func(candidate_batch))
+        num_queried = end
+    
+    candidate_queries = torch.cat(all_queries, dim=-1)
     
     if num_restarts == 0:
         f_opt, arg_opt = candidate_queries.max(dim=-1, keepdim=True)

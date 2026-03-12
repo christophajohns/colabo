@@ -54,14 +54,17 @@ class PriorAcquisitionFunction(AcquisitionFunction):
         super().__init__(model=raw_acqf_kwargs['model'], **kwargs)
         # TODO
 
+        model = self.raw_acqf.model
+        device = model.train_inputs[0].device
+        dtype = model.train_inputs[0].dtype
         self.user_prior = user_prior
         self.raw_acqf = raw_acqf(**raw_acqf_kwargs)
         self.decay_factor = decay_beta / \
                 (len(self.model.train_targets))
         self.nonneg_acq = nonneg_acq
         self.log_acq = log_acq
-        self.prior_floor = torch.tensor([prior_floor]).to(device=self.model.train_targets.device)
-        self.acq_floor = torch.tensor([log_acq_floor]).to(device=self.model.train_targets.device)
+        self.register_buffer("prior_floor", torch.tensor([prior_floor], dtype=dtype, device=device))
+        self.register_buffer("acq_floor", torch.tensor([log_acq_floor], dtype=dtype, device=device))
         
     @t_batch_mode_transform()
     def forward(self, X: Tensor) -> Tensor:
